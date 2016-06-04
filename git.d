@@ -91,8 +91,8 @@ StatusFlags asyncGetFlags(Duration allottedTime)
 	version (Windows) 
 	{
 		import win32functions;
-
-		syncGetFlagsWin(&ret, &processPorcelainLineImpl, allottedTime);
+		// TODO(dkg): write async version for Windows
+		asyncGetFlagsWin(&ret, &processPorcelainLineImpl, allottedTime);
 
 		return ret;
 	} 

@@ -1,5 +1,6 @@
 import std.stdio;
 import std.process;
+import std.parallelism;
 import std.string : startsWith, strip, indexOf;
 import std.array : replace, split;
 import std.datetime : Duration;
@@ -118,7 +119,20 @@ version (Windows)
 		return s;
 	} // customBuildPath
 
+
 	public
+	void asyncGetFlagsWin(StatusFlags* flags, void function(StatusFlags *ret, string line) processPorcelainLine, Duration allottedTime) 
+	{
+		auto asyncGetFlagsTask = task!syncGetFlagsWin(flags, processPorcelainLine, allottedTime);
+
+    	asyncGetFlagsTask.executeInNewThread();
+		// TODO(dkg): is this really working? I am not 100% sure. Need confirmation.    	
+    	asyncGetFlagsTask.yieldForce();
+	}
+
+	// TODO(dkg): Async version using 
+	// Windows async pipe I/O (called "overlapped" I/O) is more involved.
+	public // NOTE(dkg): std.parallelism needs this to be public, otherwise compilation error!
 	void syncGetFlagsWin(StatusFlags* flags, void function(StatusFlags *ret, string line) processPorcelainLine, Duration allottedTime) 
 	{
 		import core.sys.windows.windows;
@@ -220,10 +234,8 @@ version (Windows)
 				}
 			}
 
-			//CloseHandle(processInfo.hProcess);
-			//CloseHandle(processInfo.hThread);
 		}
 
-	} // asyncGetFlagsWin
+	} // syncGetFlagsWin
 
 } // version(Windows)
