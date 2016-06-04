@@ -3,15 +3,57 @@ import std.conv : to;
 import std.datetime : Duration;
 import std.exception : enforce;
 import std.file;
-import std.path : baseName, buildPath, relativePath;
+import std.path : baseName, relativePath;
 import std.process; // : A whole lotta stuff
 import std.range : empty, front, back;
-import std.stdio : File;
+import std.stdio : File, writeln;
 import std.string : startsWith, strip, countchars, chompPrefix;
 import std.array : split;
 
+version (Windows)
+{
+	import win32functions : buildPath = customBuildPath;
+}
+else
+{
+	import std.path : buildPath;
+}
+
+
 import time;
 import vcs;
+
+// Function for processing the output of git status.
+// See the docs for git status porcelain output
+void processPorcelainLineImpl(StatusFlags* ret, string line)
+{
+	if (line is null || line.empty)
+		return;
+
+	// git status --porcelain spits out a two-character code
+	// for each file that would show up in Git status
+	// Why is this .array needed? Check odd set.back error below
+	string set = line[0 .. 2];
+
+	// Question marks indicate a file is untracked.
+	if (set.canFind('?')) {
+		ret.untracked = true;
+	}
+	else {
+		// The second character indicates the working tree.
+		// If it is not a blank or a question mark,
+		// we have some un-indexed changes.
+		if (set.back != ' ')
+			ret.modified = true;
+
+		// The first character indicates the index.
+		// If it is not blank or a question mark,
+		// we have some indexed changes.
+		if (set.front != ' ')
+			ret.indexed = true;
+	}
+}
+
 
 // Fetches information about the Git repository,
 // or returns null if we are not in one.
@@ -44,92 +86,72 @@ private:
 public // So std.parallelism can get at it
 StatusFlags asyncGetFlags(Duration allottedTime)
 {
-	// Currently we can only do this for Unix.
-	// Windows async pipe I/O (they call it "overlapped" I/O)
-	// is more... involved.
-	// TODO: Either write a Windows implementation or suck it up
-	//       and do things synchronously in Windows.
-	import core.sys.posix.poll;
-
 	StatusFlags ret;
 
-	// Light off git status while we find the HEAD
-	auto pipes = pipeProcess(["git", "status", "--porcelain"], Redirect.stdout);
-	// If an exception gets thrown, be sure to cleanup the process.
-	scope(failure) {
-		kill(pipes.pid);
-		wait(pipes.pid);
-	}
-
-	// Local function for processing the output of git status.
-	// See the docs for git status porcelain output
-	void processPorcelainLine(string line)
+	version (Windows) 
 	{
-		if (line is null)
-			return;
+		import win32functions;
 
-		// git status --porcelain spits out a two-character code
-		// for each file that would show up in Git status
-		// Why is this .array needed? Check odd set.back error below
-		string set = line[0 .. 2];
+		syncGetFlagsWin(&ret, &processPorcelainLineImpl, allottedTime);
 
-		// Question marks indicate a file is untracked.
-		if (set.canFind('?')) {
-			ret.untracked = true;
+		return ret;
+	} 
+	else
+	{
+		// Currently we can only do this for Unix.
+		// Windows async pipe I/O (they call it "overlapped" I/O)
+		// is more... involved.
+		// TODO: Either write a Windows implementation or suck it up
+		//       and do things synchronously in Windows.
+		import core.sys.posix.poll;
+
+		// Light off git status while we find the HEAD
+		auto pipes = pipeProcess(["git", "status", "--porcelain"], Redirect.stdout);
+		// If an exception gets thrown, be sure to cleanup the process.
+		scope(failure) {
+			kill(pipes.pid);
+			wait(pipes.pid);
 		}
-		else {
-			// The second character indicates the working tree.
-			// If it is not a blank or a question mark,
-			// we have some un-indexed changes.
-			if (set.back != ' ')
-				ret.modified = true;
 
-			// The first character indicates the index.
-			// If it is not blank or a question mark,
-			// we have some indexed changes.
-			if (set.front != ' ')
-				ret.indexed = true;
+		// We need the actual file descriptor of the pipe so we can call poll
+		immutable int fdes = core.stdc.stdio.fileno(pipes.stdout.getFP());
+		enforce(fdes >= 0, "fileno failed.");
+
+		pollfd pfd;
+		pfd.fd = fdes; // The file descriptor we want to poll
+		pfd.events = POLLIN; // Notify us if there is data to be read
+
+		string nextLine;
+
+		// As long as git status is running, keep at it.
+		while (!tryWait(pipes.pid).terminated) {
+
+			// Poll the pipe with an arbitrary 5 millisecond timeout
+			enforce(poll(&pfd, 1, 5) >= 0, "poll failed");
+
+			// If we have data to read, process a line of it.
+			if (pfd.revents & POLLIN) {
+				nextLine = pipes.stdout.readln();
+				processPorcelainLineImpl(&ret, nextLine);
+			}
+			else if (pastTime(allottedTime)) {
+				import core.sys.posix.signal: SIGTERM;
+				kill(pipes.pid, SIGTERM);
+				break;
+			}
 		}
-	}
 
-	// We need the actual file descriptor of the pipe so we can call poll
-	immutable int fdes = core.stdc.stdio.fileno(pipes.stdout.getFP());
-	enforce(fdes >= 0, "fileno failed.");
-
-	pollfd pfd;
-	pfd.fd = fdes; // The file descriptor we want to poll
-	pfd.events = POLLIN; // Notify us if there is data to be read
-
-	string nextLine;
-
-	// As long as git status is running, keep at it.
-	while (!tryWait(pipes.pid).terminated) {
-
-		// Poll the pipe with an arbitrary 5 millisecond timeout
-		enforce(poll(&pfd, 1, 5) >= 0, "poll failed");
-
-		// If we have data to read, process a line of it.
-		if (pfd.revents & POLLIN) {
+		// Process anything left over
+		while (nextLine !is null) {
 			nextLine = pipes.stdout.readln();
-			processPorcelainLine(nextLine);
+			processPorcelainLineImpl(&ret, nextLine);
 		}
-		else if (pastTime(allottedTime)) {
-			import core.sys.posix.signal: SIGTERM;
-			kill(pipes.pid, SIGTERM);
-			break;
-		}
+
+		// Join the process
+		wait(pipes.pid);
+
+		return ret;
 	}
-
-	// Process anything left over
-	while (nextLine !is null) {
-		nextLine = pipes.stdout.readln();
-		processPorcelainLine(nextLine);
-	}
-
-	// Join the process
-	wait(pipes.pid);
-
-	return ret;
 }
 
 /// Gets the name of the current Git head, or a shortened SHA

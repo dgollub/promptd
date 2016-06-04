@@ -3,3 +3,6 @@
 promptoglyph.tar.gz
 promptoglyph-path
 promptoglyph-vcs
+build/
+.DS_Store
+Thumbs.db

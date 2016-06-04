@@ -3,19 +3,44 @@ module promptoglyph.vcs;
 import std.getopt;
 import std.datetime : msecs;
 import std.stdio : write;
+import std.array : replace;
+import std.datetime : Duration;
+import std.range : empty;
 
 import color;
 import git;
 import help;
 import vcs;
 
+// TODO(dkg): somehow fix the unicode support on Windows' powershell/cmd.exe??
+// cmd.exe does not support fancy unicode chars in the output for whatever reason
+// see http://stackoverflow.com/questions/14109024/how-to-make-unicode-charset-in-cmd-exe-by-default
+// Another thing is that cmd.exe is not really suited for this tool anyway, but Powershell is, so we
+// should see if we can add fancy unicode chars for powershell users.
+// Maybe use program arguments again, like we already do for coloring or
+// bash/zsh specific escape codes.
+
+version(Windows)
+{
+	const string defaultIndexedText = "i";
+	const string defaultModifiedText = "m";
+	const string defaultUntrackedText = "u";
+} 
+else
+{
+	const string defaultIndexedText = "✔";
+	const string defaultModifiedText = "±";
+	const string defaultUntrackedText = "?";
+}
+
 struct StatusStringOptions {
 	string prefix = "[";
 	string suffix = "]";
-	string indexedText = "✔";
-	string modifiedText = "±";
-	string untrackedText = "?";
+	string indexedText = defaultIndexedText;
+	string modifiedText = defaultModifiedText;
+	string untrackedText = defaultUntrackedText;
 }
+
 
 void main(string[] args)
 {
@@ -47,6 +72,19 @@ void main(string[] args)
 	if (bash && zsh)
 		writeAndFail("Both --bash and --zsh specified. Wat.");
 
+
+version (Windows) 
+{
+	// TODO(dkg): think about better powershell support for colored output
+	Escapes escapesToUse = Escapes.cmd;
+	// In case the tool is used in Cygwin and the user wants to force either bash or zsh.
+	if (bash)  
+		escapesToUse = Escapes.bash;
+	else if (zsh)
+		escapesToUse = Escapes.zsh;
+}
+else
+{
 	Escapes escapesToUse;
 	if (bash)
 		escapesToUse = Escapes.bash;
@@ -54,6 +92,7 @@ void main(string[] args)
 		escapesToUse = Escapes.zsh;
 	else // Redundant (none is the default), but more explicit.
 		escapesToUse = Escapes.none;
+}	
 
 	const Duration allottedTime = timeLimit.msecs;
 
@@ -129,7 +168,7 @@ promptoglyph-vcs by Matt Kline, version 0.5
 Part of the promptoglyph tool set
 EOS";
 
-string helpString = q"EOS
+const string helpStringTemp = q"EOS
 usage: promptoglyph-vcs [-t <milliseconds>]
 
 Options:
@@ -176,19 +215,26 @@ Options:
   --bash, -b
     Used to emit additional escapes needed for color sequences in Bash prompts.
     Ignored if --no-color is specified.
+    Ignored on Windows.
 
   --zsh, -z
     Used to emit additional escapes needed for color sequences in ZSH prompts.
     Ignored if --no-color is specified.
+    Ignored on Windows.
 
 promptoglyph-vcs is designed to be part of a shell prompt.
 It prints a quick, symbolic look at the status of a Git repository
 if you are currently in one and nothing otherwise. Output looks like
-    [master ✔±?]
-where "master" is the current branch, ? indicates untracked files,
-± indicates changed but unstaged files, and ✔ indicates files staged
+    [master {indexedText}{modifiedText}{untrackedText}]
+where "master" is the current branch, {untrackedText} indicates untracked files,
+{modifiedText} indicates changed but unstaged files, and {indexedText} indicates files staged
 in the index. If "git status" could not run in a timely manner to get this info
 (see --time-limit above), a T is placed in front.
 Future plans include additional info (like when merging),
 and possibly Subversion and Mercurial support.
 EOS";
+
+const string helpString = helpStringTemp
+	.replace("{indexedText}", defaultIndexedText)
+	.replace("{modifiedText}", defaultModifiedText)
+	.replace("{untrackedText}", defaultUntrackedText);
