@@ -167,6 +167,8 @@ promptoglyph-vcs by Matt Kline, version 0.5
 Part of the promptoglyph tool set
 EOS";
 
+
+// TODO(dkg): provide a "--no-color" option that does the right thing.
 const string helpStringTemp = q"EOS
 usage: promptoglyph-vcs [-t <milliseconds>]
 

@@ -25,6 +25,7 @@ private:
 // 
 // TODO(dkg): cmd.exe is not really suited for this tool anyway, but Powershell is, so we
 //            should see if we can add colors for powershell.
+// TODO(dkg): provide a "--no-color" option that does the right thing.
 string makeColorFunction(string name, int code)
 {
 	import std.conv : to;
