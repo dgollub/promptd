@@ -72,27 +72,26 @@ void main(string[] args)
 	if (bash && zsh)
 		writeAndFail("Both --bash and --zsh specified. Wat.");
 
-
-version (Windows) 
-{
-	// TODO(dkg): think about better powershell support for colored output
-	Escapes escapesToUse = Escapes.cmd;
-	// In case the tool is used in Cygwin and the user wants to force either bash or zsh.
-	if (bash)  
-		escapesToUse = Escapes.bash;
-	else if (zsh)
-		escapesToUse = Escapes.zsh;
-}
-else
-{
-	Escapes escapesToUse;
-	if (bash)
-		escapesToUse = Escapes.bash;
-	else if (zsh)
-		escapesToUse = Escapes.zsh;
-	else // Redundant (none is the default), but more explicit.
-		escapesToUse = Escapes.none;
-}	
+	version (Windows) 
+	{
+		// TODO(dkg): think about better powershell support for colored output
+		Escapes escapesToUse = Escapes.cmd;
+		// In case the tool is used in Cygwin and the user wants to force either bash or zsh.
+		if (bash)  
+			escapesToUse = Escapes.bash;
+		else if (zsh)
+			escapesToUse = Escapes.zsh;
+	}
+	else
+	{
+		Escapes escapesToUse;
+		if (bash)
+			escapesToUse = Escapes.bash;
+		else if (zsh)
+			escapesToUse = Escapes.zsh;
+		else // Redundant (none is the default), but more explicit.
+			escapesToUse = Escapes.none;
+	}
 
 	const Duration allottedTime = timeLimit.msecs;
 

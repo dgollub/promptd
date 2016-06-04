@@ -6,7 +6,7 @@ import std.file;
 import std.path : baseName, relativePath;
 import std.process; // : A whole lotta stuff
 import std.range : empty, front, back;
-import std.stdio : File, writeln;
+import std.stdio : File;
 import std.string : startsWith, strip, countchars, chompPrefix;
 import std.array : split;
 
@@ -91,18 +91,13 @@ StatusFlags asyncGetFlags(Duration allottedTime)
 	version (Windows) 
 	{
 		import win32functions;
-		// TODO(dkg): write async version for Windows
+
 		asyncGetFlagsWin(&ret, &processPorcelainLineImpl, allottedTime);
 
 		return ret;
 	} 
 	else
 	{
-		// Currently we can only do this for Unix.
-		// Windows async pipe I/O (they call it "overlapped" I/O)
-		// is more... involved.
-		// TODO: Either write a Windows implementation or suck it up
-		//       and do things synchronously in Windows.
 		import core.sys.posix.poll;
 
 		// Light off git status while we find the HEAD
@@ -171,6 +166,8 @@ string getHead(string repoRoot, Duration allottedTime)
 		//Example content: gitdir: ../.git/modules/modulename
 		string[] contentSplit = split(content, "/");
 		if (contentSplit.length > 0) {
+			// TODO(dkg): this only returns the git submodule name, but not
+			//            what branch it is on - so this output could be improved
 			return "sub: " ~ (contentSplit[$-1]);
 		}
 		else {
